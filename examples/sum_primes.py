@@ -29,12 +29,12 @@ def isprime(n):
 
 def sum_primes(n):
     """Calculates sum of all primes below given integer n"""
-    return sum([x for x in xrange(2, n) if isprime(x)])
+    return sum([x for x in range(2, n) if isprime(x)])
 
 
-print """Usage: python sum_primes.py [ncpus]
+print("""Usage: python sum_primes.py [ncpus]
     [ncpus] - the number of workers to run in parallel,
-    if omitted it will be set to the number of processors in the system"""
+    if omitted it will be set to the number of processors in the system""")
 
 # tuple of all parallel python servers to connect with
 ppservers = ()
@@ -48,7 +48,7 @@ else:
     # Creates jobserver with automatically detected number of workers
     job_server = pp.Server(ppservers=ppservers)
 
-print "Starting pp with", job_server.get_ncpus(), "workers"
+print("Starting pp with %s workers" % job_server.get_ncpus())
 
 # Submit a job of calulating sum_primes(100) for execution.
 # sum_primes - the function
@@ -65,7 +65,7 @@ job1 = job_server.submit(sum_primes, (100, ), (isprime, ), ("math", ))
 # wait here until result is available
 result = job1()
 
-print "Sum of primes below 100 is", result
+print("Sum of primes below 100 is %s" % result)
 
 
 # The following submits 8 jobs and then retrieves the results
@@ -74,7 +74,7 @@ jobs = [(input, job_server.submit(sum_primes, (input, ), (isprime, ),
         ("math", ))) for input in inputs]
 
 for input, job in jobs:
-    print "Sum of primes below", input, "is", job()
+    print("Sum of primes below %s is %s" % (input, job()))
 
 job_server.print_stats()
 

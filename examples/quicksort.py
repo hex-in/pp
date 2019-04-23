@@ -7,7 +7,12 @@
 
 import sys, random
 import pp
-
+try:
+    callable(min)
+except NameError:
+    def callable(x):
+        import collections
+        return isinstance(x, collections.Callable)
 
 def quicksort(a, n=-1, srv=None):
     if len(a) <= 1:
@@ -19,10 +24,10 @@ def quicksort(a, n=-1, srv=None):
         return [srv.submit(quicksort, (a,))]
     
 
-print """Usage: python quicksort.py [ncpus]
+print("""Usage: python quicksort.py [ncpus]
     [ncpus] - the number of workers to run in parallel, 
     if omitted it will be set to the number of processors in the system
-"""
+""")
 
 # tuple of all parallel python servers to connect with
 #ppservers = ("*",)
@@ -37,11 +42,11 @@ else:
     # Creates jobserver with automatically detected number of workers
     job_server = pp.Server(ppservers=ppservers)
 
-print "Starting pp with", job_server.get_ncpus(), "workers"
+print("Starting pp with %s workers" % job_server.get_ncpus())
 
 n = 1000000
 input = []
-for i in xrange(n):
+for i in range(n):
     input.append(random.randint(0,100000))
 
 # set n to a positive integer to create 2^n PP jobs 
@@ -62,7 +67,7 @@ for x in outputraw:
     else:
         output.append(x)
 
-print "first 30 numbers in increasing order:", output[:30]
+print("first 30 numbers in increasing order: %s" % output[:30])
 
 job_server.print_stats()
 

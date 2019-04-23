@@ -7,22 +7,28 @@
 
 import math
 import sys
-import md5
+import hashlib
 import pp
+if sys.version_info[0] >= 3:
+    def b_(x):
+        return x.encode('UTF-8')
+else:
+    def b_(x):
+        return x
 
 
 def md5test(hash, start, end):
-    """Calculates md5 of the integerss between 'start' and 'end' and
+    """Calculates md5 of the integers between 'start' and 'end' and
        compares it with 'hash'"""
-    for x in xrange(start, end):
-        if md5.new(str(x)).hexdigest() == hash:
+    for x in range(start, end):
+        if hashlib.md5(b_(str(x))).hexdigest() == hash:
             return x
 
 
-print """Usage: python reverse_md5.py [ncpus]
+print("""Usage: python reverse_md5.py [ncpus]
     [ncpus] - the number of workers to run in parallel,
     if omitted it will be set to the number of processors in the system
-"""
+""")
 
 # tuple of all parallel python servers to connect with
 #ppservers = ("*",) # auto-discover
@@ -37,11 +43,11 @@ else:
     # Creates jobserver with automatically detected number of workers
     job_server = pp.Server(ppservers=ppservers)
 
-print "Starting pp with", job_server.get_ncpus(), "workers"
+print("Starting pp with %s workers" % job_server.get_ncpus())
 
 #Calculates md5 hash from the given number
-hash = md5.new("1829182").hexdigest()
-print "hash =", hash
+hash = hashlib.md5(b_("1829182")).hexdigest()
+print("hash = %s" % hash)
 #Now we will try to find the number with this hash value
 
 start = 1
@@ -51,10 +57,10 @@ end = 2000000
 # into a 128 of small subproblems leads to a better load balancing
 parts = 128
 
-step = (end - start) / parts + 1
+step = int((end - start) / parts + 1)
 jobs = []
 
-for index in xrange(parts):
+for index in range(parts):
     starti = start+index*step
     endi = min(start+(index+1)*step, end)
     # Submit a job which will test if a number in the range starti-endi
@@ -62,12 +68,12 @@ for index in xrange(parts):
     # md5test - the function
     # (hash, starti, endi) - tuple with arguments for md5test
     # () - tuple with functions on which function md5test depends
-    # ("md5",) - tuple with module names which must be imported before
-    # md5test execution
+    # ("hashlib", "_hashlib") - tuple with module names which must be
+    # imported before md5test execution
     # jobs.append(job_server.submit(md5test, (hash, starti, endi),
     # globals=globals()))
     jobs.append(job_server.submit(md5test, (hash, starti, endi),
-            (), ("md5", )))
+            (), ("hashlib", "_hashlib")))
 
 # Retrieve results of all submited jobs
 for job in jobs:
@@ -77,9 +83,9 @@ for job in jobs:
 
 # Print the results
 if result:
-    print "Reverse md5 for", hash, "is", result
+    print("Reverse md5 for %s is %s" % (hash, result))
 else:
-    print "Reverse md5 for", hash, "has not been found"
+    print("Reverse md5 for %s has not been found" % hash)
 
 job_server.print_stats()
 

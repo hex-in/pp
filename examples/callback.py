@@ -9,7 +9,10 @@
 
 import math
 import time
-import thread
+try:
+    import _thread as thread
+except ImportError:
+    import thread
 import sys
 import pp
 
@@ -35,7 +38,7 @@ class Sum(object):
 def part_sum(start, end):
     """Calculates partial sum"""
     sum = 0
-    for x in xrange(start, end):
+    for x in range(start, end):
         if x % 2 == 0:
             sum -= 1.0 / x
         else:
@@ -43,17 +46,17 @@ def part_sum(start, end):
     return sum
 
 
-print """Usage: python callback.py [ncpus]
-    [ncpus] - the number of workers to run in parallel,
-    if omitted it will be set to the number of processors in the system
-"""
+print("""Usage: python callback.py [ncpus]
+      [ncpus] - the number of workers to run in parallel,
+      if omitted it will be set to the number of processors in the system
+      """)
 
 start = 1
 end = 20000000
 
 # Divide the task into 128 subtasks
 parts = 128
-step = (end - start) / parts + 1
+step = int((end - start) / parts + 1)
 
 # tuple of all parallel python servers to connect with
 #ppservers = ("*",) # auto-discover
@@ -68,7 +71,7 @@ else:
     # Creates jobserver with automatically detected number of workers
     job_server = pp.Server(ppservers=ppservers)
 
-print "Starting pp with", job_server.get_ncpus(), "workers"
+print("Starting pp with %s workers" % job_server.get_ncpus())
 
 # Create anm instance of callback class
 sum = Sum()
@@ -77,7 +80,7 @@ sum = Sum()
 # of active workers and measure the time
 
 start_time = time.time()
-for index in xrange(parts):
+for index in range(parts):
     starti = start+index*step
     endi = min(start+(index+1)*step, end)
     # Submit a job which will calculate partial sum
@@ -90,7 +93,7 @@ for index in xrange(parts):
 job_server.wait()
 
 # Print the partial sum
-print "Partial sum is", sum.value, "| diff =", math.log(2) - sum.value
+print("Partial sum is %s | diff = %s" % (sum.value, math.log(2) - sum.value))
 
 job_server.print_stats()
 

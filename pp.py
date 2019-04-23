@@ -38,14 +38,35 @@ import sys
 import types
 import time
 import atexit
-import user
-import cPickle as pickle
+try:
+    import user
+except ImportError:
+    user = types  # using as a stub
+try:
+    import dill as pickle
+    from dill.source import importable
+    from dill.source import getname
+    from dill.source import _wrap
+except ImportError:
+    try: import cPickle as pickle
+    except ImportError: import pickle
+    def importable(func): # the original code
+        #get lines of the source and adjust indent
+        sourcelines = inspect.getsourcelines(func)[0]
+        #remove indentation from the first line
+        sourcelines[0] = sourcelines[0].lstrip()
+        return "".join(sourcelines)
+    def getname(obj): # just get __name__
+        return obj.__name__
+    def _wrap(f): # do nothing
+        return f
+import six
 import pptransport
 import ppauto
-import ppcommon
+import ppcommon as ppc
 
 copyright = "Copyright (c) 2005-2017 Vitalii Vanovschi. All rights reserved"
-version = "1.6.6"
+__version__ = version = "1.6.6"
 
 # Reconnect persistent rworkers in seconds.
 RECONNECT_WAIT_TIME = 5
@@ -115,10 +136,10 @@ class _Task(object):
 
     def __unpickle(self):
         """Unpickles the result of the task"""
-        self.result, sout = pickle.loads(self.sresult)
+        self.result, sout = pickle.loads(ppc.b_(self.sresult))
         self.unpickled = True
         if len(sout) > 0:
-            print sout,
+            six.print_(sout, end=' ')
         if self.callback:
             args = self.callbackargs + (self.result, )
             self.callback(*args)
@@ -140,12 +161,10 @@ class _Worker(object):
     def start(self):
         """Starts local worker"""
         if _USE_SUBPROCESS:
-            proc = subprocess.Popen(self.command, stdin=subprocess.PIPE,
-                    stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            proc = subprocess.Popen(self.command, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
             self.t = pptransport.CPipeTransport(proc.stdout, proc.stdin)
         else:
-            self.t = pptransport.CPipeTransport(
-                    *popen2.popen3(self.command)[:2])
+            self.t = pptransport.CPipeTransport(*popen2.popen3(self.command)[:2])
 
         self.pid = int(self.t.receive())
         self.t.send(str(self.pickle_proto))
@@ -332,10 +351,9 @@ class Server(object):
         pythondirs = [os.getcwd()] + sys.path
 
         if "PYTHONPATH" in os.environ and os.environ["PYTHONPATH"]:
-            pythondirs = os.environ["PYTHONPATH"].split(os.pathsep) + pythondirs
-        dirset = set()        
-        os.environ["PYTHONPATH"] = os.pathsep.join([dirset.add(x) or x for x in pythondirs if x not in dirset])
-
+            pythondirs += os.environ["PYTHONPATH"].split(os.pathsep)
+        os.environ["PYTHONPATH"] = os.pathsep.join(set(pythondirs))
+        
         atexit.register(self.destroy)
         self.__stats = {"local": _Statistics(0)}
         self.set_ncpus(ncpus)
@@ -350,7 +368,7 @@ class Server(object):
             if len(ppserver)>1:
                 port = int(ppserver[1])
             else:
-                port = Server.default_port
+                port = ppc.randomport()
             if host.find("*") == -1:
                 self.ppservers.append((host, port))
             else:
@@ -362,12 +380,12 @@ class Server(object):
                         (broadcast, port)))
         self.__stats_lock = threading.Lock()
         if secret is not None:
-            if not isinstance(secret, types.StringType):
+            if not isinstance(secret, str):
                 raise TypeError("secret must be of a string type")
             self.secret = str(secret)
         elif hasattr(user, "pp_secret"):
             secret = getattr(user, "pp_secret")
-            if not isinstance(secret, types.StringType):
+            if not isinstance(secret, str):
                 raise TypeError("secret must be of a string type")
             self.secret = str(secret)
         else:
@@ -416,11 +434,12 @@ class Server(object):
             raise TypeError("globals argument must be a dictionary")
 
         for module in modules:
-            if not isinstance(module, types.StringType):
+            if not isinstance(module, str):
                 raise TypeError("modules argument must be a list of strings")
 
         tid = self.__gentid()
 
+        other_type = types.FunctionType if six.PY3 else types.ClassType
         if globals:
             modules += tuple(self.__find_modules("", globals))
             modules = tuple(set(modules))
@@ -428,7 +447,7 @@ class Server(object):
                     (tid, str(modules)))
             for object1 in globals.values():
                 if isinstance(object1, types.FunctionType) \
-                        or isinstance(object1, types.ClassType):
+                        or isinstance(object1, other_type):
                     depfuncs += (object1, )
 
         task = _Task(self, tid, callback, callbackargs, group)
@@ -438,18 +457,23 @@ class Server(object):
         self.__waittasks_lock.release()
 
         # if the function is a method of a class add self to the arguments list
-        if isinstance(func, types.MethodType) and func.im_self is not None:
-            args = (func.im_self, ) + args
+        if isinstance(func, types.MethodType):
+            func_self = func.__self__ if six.PY3 else func.im_self
+            if func_self is not None:
+                args = (func_self, ) + args
 
         # if there is an instance of a user deined class in the arguments add
         # whole class to dependancies
         for arg in args:
             # Checks for both classic or new class instances
-            if isinstance(arg, types.InstanceType) \
-                    or str(type(arg))[:6] == "<class":
+            if (six.PY2 and isinstance(arg, types.InstanceType)) \
+                        or str(type(arg))[:6] == "<class":
+                # in PY3, all instances are <class... so skip the builtins
+                if getattr(inspect.getmodule(arg), '__name__', None) \
+                   in ['builtins', '__builtin__', None]: pass
                 # do not include source for imported modules
-                if ppcommon.is_not_imported(arg, modules):
-                    depfuncs += tuple(ppcommon.get_class_hierarchy(arg.__class__))
+                elif ppc.is_not_imported(arg, modules):
+                    depfuncs += tuple(ppc.get_class_hierarchy(arg.__class__))
 
         # if there is a function in the arguments add this
         # function to dependancies
@@ -465,7 +489,7 @@ class Server(object):
         self.__queue_lock.release()
 
         self.logger.debug("Task %i submited, function='%s'" %
-                (tid, func.func_name))
+                (tid, getname(func)))
         self.__scheduler()
         return task
 
@@ -532,26 +556,27 @@ class Server(object):
         """Prints job execution statistics. Useful for benchmarking on
            clusters"""
 
-        print "Job execution statistics:"
+        print("Job execution statistics:")
         walltime = time.time() - self.__creation_time
-        statistics = self.get_stats().items()
+        statistics = list(self.get_stats().items())
         totaljobs = 0.0
         for ppserver, stat in statistics:
             totaljobs += stat.njobs
-        print " job count | % of all jobs | job time sum | " \
-                "time per job | job server"
+        print(" job count | % of all jobs | job time sum | " \
+                "time per job | job server")
         for ppserver, stat in statistics:
             if stat.njobs:
-                print "    %6i |        %6.2f |     %8.4f |  %11.6f | %s" \
+                print("    %6i |        %6.2f |     %8.4f |  %11.6f | %s" \
                         % (stat.njobs, 100.0*stat.njobs/totaljobs, stat.time,
-                        stat.time/stat.njobs, ppserver, )
-        print "Time elapsed since server creation", walltime
-        print self.__active_tasks, "active tasks,", self.get_ncpus(), "cores"
+                        stat.time/stat.njobs, ppserver, ) )
+        print("Time elapsed since server creation %s" % walltime)
+        print("%s active tasks, %s cores" % (self.__active_tasks, \
+                                               self.get_ncpus()))
 
         if not self.__accurate_stats:
-            print "WARNING: statistics provided above is not accurate" \
-                  " due to job rescheduling"
-        print
+            print ("WARNING: statistics provided above is not accurate" \
+                  " due to job rescheduling")
+        print("")
 
     # all methods below are for internal use only
 
@@ -604,11 +629,11 @@ class Server(object):
     def __connect(self):
         """Connects to all remote ppservers"""
         for ppserver in self.ppservers:
-            ppcommon.start_thread("connect1",  self.connect1, ppserver)
+            ppc.start_thread("connect1",  self.connect1, ppserver)
 
         self.discover = ppauto.Discover(self, True)
         for ppserver in self.auto_ppservers:
-            ppcommon.start_thread("discover.run", self.discover.run, ppserver)
+            ppc.start_thread("discover.run", self.discover.run, ppserver)
 
     def __detect_ncpus(self):
         """Detects the number of effective CPUs in the system"""
@@ -637,7 +662,7 @@ class Server(object):
         if hashs not in self.__sfuncHM:
             sources = [self.__get_source(func) for func in funcs]
             self.__sfuncHM[hashs] = pickle.dumps(
-                    (funcs[0].func_name, sources, modules),
+                    (getname(funcs[0]), sources, modules),
                     self.__pickle_proto)
         return self.__sfuncHM[hashs]
 
@@ -670,7 +695,7 @@ class Server(object):
                 self.__add_to_active_tasks(1)
                 try:
                     self.__stats["local"].njobs += 1
-                    ppcommon.start_thread("run_local",  self._run_local, task+(worker, ))
+                    ppc.start_thread("run_local",  self._run_local, task+(worker, ))
                 except:
                     pass
             else:
@@ -679,7 +704,7 @@ class Server(object):
                         rworker.is_free = False
                         task = self.__queue.pop(0)
                         self.__stats[rworker.id].njobs += 1
-                        ppcommon.start_thread("run_remote",  self._run_remote, task+(rworker, ))
+                        ppc.start_thread("run_remote",  self._run_remote, task+(rworker, ))
                         break
                 else:
                     if len(self.__queue) > self.__ncpus:
@@ -688,7 +713,7 @@ class Server(object):
                                 rworker.is_free = False
                                 task = self.__queue.pop(0)
                                 self.__stats[rworker.id].njobs += 1
-                                ppcommon.start_thread("run_remote",  self._run_remote, task+(rworker, ))                                
+                                ppc.start_thread("run_remote",  self._run_remote, task+(rworker, ))                                
                                 break
                         else:
                                 break
@@ -701,11 +726,7 @@ class Server(object):
         """Fetches source of the function"""
         hashf = hash(func)
         if hashf not in self.__sourcesHM:
-            #get lines of the source and adjust indent
-            sourcelines = inspect.getsourcelines(func)[0]
-            #remove indentation from the first line
-            sourcelines[0] = sourcelines[0].lstrip()
-            self.__sourcesHM[hashf] = "".join(sourcelines)
+            self.__sourcesHM[hashf] = importable(func)
         return self.__sourcesHM[hashf]
 
     def _run_local(self,  job, sfunc, sargs, worker):

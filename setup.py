@@ -7,7 +7,8 @@ Standard build tool for python libraries.
 """
 
 import os.path
-from distutils.core import setup
+# from distutils.core import setup
+from setuptools import setup, find_packages, Extension
 
 from pp import version as VERSION
 

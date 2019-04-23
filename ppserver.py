@@ -30,6 +30,7 @@ Parallel Python Software, Network Server
 http://www.parallelpython.com - updates, documentation, examples and support
 forums
 """
+from __future__ import with_statement
 
 import atexit
 import logging
@@ -43,14 +44,15 @@ import string
 import signal
 import time
 import os
+import six
 
 import pp
 import ppauto
-import ppcommon
+import ppcommon as ppc
 import pptransport
 
 copyright = "Copyright (c) 2005-2017 Vitalii Vanovschi. All rights reserved"
-version = "1.6.6"
+__version__ = version = "1.6.6"
 
 LISTEN_SOCKET_TIMEOUT = 20
 
@@ -74,14 +76,14 @@ class _NetworkServer(pp.Server):
                 proto, socket_timeout)
         if pid_file:
           with open(pid_file, 'w') as pfile:
-            print >>pfile, os.getpid()
+            six.print_(os.getpid(), file=pfile)
           atexit.register(os.remove, pid_file)
         self.host = interface
         self.bcast = broadcast
         if port is not None:
             self.port = port
         else:
-            self.port = self.default_port
+            self.port = ppc.randomport()
         self.timeout = timeout
         self.ncon = 0
         self.last_con_time = time.time()
@@ -92,7 +94,7 @@ class _NetworkServer(pp.Server):
         if self.timeout is not None:
             self.logger.debug("ppserver will exit in %i seconds if no "\
                     "connections with clients exist" % (self.timeout))
-            ppcommon.start_thread("timeout_check",  self.check_timeout)
+            ppc.start_thread("timeout_check",  self.check_timeout)
 
     def ncon_add(self, val):
         """Keeps track of the number of connections and time of the last one"""
@@ -124,8 +126,8 @@ class _NetworkServer(pp.Server):
             self.ssocket.settimeout(LISTEN_SOCKET_TIMEOUT)
             self.ssocket.bind((self.host, self.port))
             self.ssocket.listen(5)
-        except socket.error, e:
-            self.logger.error("Cannot create socket for %s:%s, %s", self.host, self.port, e)
+        except socket.error as err:
+            self.logger.error("Cannot create socket for %s:%s, %s", self.host, self.port, err)
 
         try:
             while 1:
@@ -144,7 +146,7 @@ class _NetworkServer(pp.Server):
                 # now do something with the clientsocket
                 # in this case, we'll pretend this is a threaded server
                 if csocket:
-                    ppcommon.start_thread("client_socket",  self.crun, (csocket,  ))
+                    ppc.start_thread("client_socket",  self.crun, (csocket,  ))
         except KeyboardInterrupt:
             pass
         except:
@@ -160,10 +162,10 @@ class _NetworkServer(pp.Server):
         mysocket.send(version)
         #generate a random string
         srandom = "".join([random.choice(string.ascii_letters)
-                for i in xrange(16)])
+                for i in range(16)])
         mysocket.send(srandom)
-        answer = sha_new(srandom+self.secret).hexdigest()
-        clientanswer = mysocket.receive()
+        answer = sha_new(ppc.b_(srandom+self.secret)).hexdigest()
+        clientanswer = ppc.str_(mysocket.receive())
         if answer != clientanswer:
             self.logger.warning("Authentication failed, client host=%s, port=%i"
                     % csocket.getpeername())
@@ -173,7 +175,7 @@ class _NetworkServer(pp.Server):
         else:
             mysocket.send("OK")
 
-        ctype = mysocket.receive()
+        ctype = ppc.str_(mysocket.receive())
         self.logger.debug("Control message received: " + ctype)
         self.ncon_add(1)
         try:
@@ -203,7 +205,7 @@ class _NetworkServer(pp.Server):
     def broadcast(self):
         """Initiaates auto-discovery mechanism"""
         discover = ppauto.Discover(self)
-        ppcommon.start_thread("server_broadcast",  discover.run,
+        ppc.start_thread("server_broadcast",  discover.run,
                 ((self.host, self.port), (self.bcast, self.port)))
 
 
@@ -214,18 +216,18 @@ def parse_config(file_loc):
     # If we don't have configobj installed then let the user know and exit
     try:
         from configobj import ConfigObj
-    except ImportError, ie:
-        print >> sys.stderr, ("ERROR: You must have config obj installed to use"
-                "configuration files. You can still use command line switches.")
+    except ImportError as ie:
+        six.print_(("ERROR: You must have config obj installed to use"
+                "configuration files. You can still use command line switches."), file=sys.stderr)
         sys.exit(1)
 
     if not os.access(file_loc, os.F_OK):
-        print >> sys.stderr, "ERROR: Can not access %s." % arg
+        six.print_("ERROR: Can not access %s." % arg, file=sys.stderr)
         sys.exit(1)
 
-    args = {}
-    autodiscovery = False
-    debug = False
+    # args = {}
+    # autodiscovery = False
+    # debug = False
 
     # Load the configuration file
     config = ConfigObj(file_loc)
@@ -258,7 +260,8 @@ def parse_config(file_loc):
         pass
 
     try:
-        debug  = config['general'].as_bool('debug')
+        # debug  = config['general'].as_bool('debug')
+        args['loglevel'] = config['general'].as_bool('debug')
     except:
         pass
 
@@ -292,44 +295,45 @@ def parse_config(file_loc):
     except:
         pass
     # Return a tuple of the args dict and autodiscovery variable
-    return args, autodiscovery, debug
+    # return args, autodiscovery, debug
+    return args, autodiscovery
 
 
 def print_usage():
     """Prints help"""
-    print "Parallel Python Network Server (pp-" + version + ")"
-    print "Usage: ppserver.py [-hdar] [-f format] [-n proto]"\
+    print("Parallel Python Network Server (pp-" + version + ")")
+    print("Usage: ppserver.py [-hdar] [-f format] [-n proto]"\
             " [-c config_path] [-i interface] [-b broadcast]"\
             " [-p port] [-w nworkers] [-s secret] [-t seconds]"\
-            " [-k seconds] [-P pid_file]"
-    print
-    print "Options: "
-    print "-h                 : this help message"
-    print "-d                 : set log level to debug"
-    print "-f format          : log format"
-    print "-a                 : enable auto-discovery service"
-    print "-r                 : restart worker process after each"\
-            " task completion"
-    print "-n proto           : protocol number for pickle module"
-    print "-c path            : path to config file"
-    print "-i interface       : interface to listen"
-    print "-b broadcast       : broadcast address for auto-discovery service"
-    print "-p port            : port to listen"
-    print "-w nworkers        : number of workers to start"
-    print "-s secret          : secret for authentication"
-    print "-t seconds         : timeout to exit if no connections with "\
-            "clients exist"
-    print "-k seconds         : socket timeout in seconds"
-    print "-P pid_file        : file to write PID to"
-    print
-    print "To print server stats send SIGUSR1 to its main process (unix only). "
-    print 
-    print "Due to the security concerns always use a non-trivial secret key."
-    print "Secret key set by -s switch will override secret key assigned by"
-    print "pp_secret variable in .pythonrc.py"
-    print
-    print "Please visit http://www.parallelpython.com for extended up-to-date"
-    print "documentation, examples and support forums"
+            " [-k seconds] [-P pid_file]")
+    print("")
+    print("Options: ")
+    print("-h                 : this help message")
+    print("-d                 : set log level to debug")
+    print("-f format          : log format")
+    print("-a                 : enable auto-discovery service")
+    print("-r                 : restart worker process after each"\
+            " task completion")
+    print("-n proto           : protocol number for pickle module")
+    print("-c path            : path to config file")
+    print("-i interface       : interface to listen")
+    print("-b broadcast       : broadcast address for auto-discovery service")
+    print("-p port            : port to listen")
+    print("-w nworkers        : number of workers to start")
+    print("-s secret          : secret for authentication")
+    print("-t seconds         : timeout to exit if no connections with "\
+            "clients exist")
+    print("-k seconds         : socket timeout in seconds")
+    print("-P pid_file        : file to write PID to")
+    print("")
+    print("To print server stats send SIGUSR1 to its main process (unix only). ")
+    print("")
+    print("Due to the security concerns always use a non-trivial secret key.")
+    print("Secret key set by -s switch will override secret key assigned by")
+    print("pp_secret variable in .pythonrc.py")
+    print("")
+    print("Please visit http://www.parallelpython.com for extended up-to-date")
+    print("documentation, examples and support forums")
 
 
 def create_network_server(argv):
@@ -341,7 +345,7 @@ def create_network_server(argv):
 
     args = {}
     autodiscovery = False
-    debug = False
+    # debug = False
 
     log_level = logging.WARNING
     log_format = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
@@ -351,9 +355,11 @@ def create_network_server(argv):
             print_usage()
             sys.exit()
         elif opt == "-c":
-            args, autodiscovery, debug = parse_config(arg)
+            # args, autodiscovery, debug = parse_config(arg)
+            args, autodiscovery = parse_config(arg)
         elif opt == "-d":
-				    debug = True
+            log_level = logging.DEBUG
+            pp.SHOW_EXPECTED_EXCEPTIONS = True
         elif opt == "-f":
             log_format = arg
         elif opt == "-i":
@@ -379,9 +385,9 @@ def create_network_server(argv):
         elif opt == "-P":
             args["pid_file"] = arg
 	
-    if debug:
-        log_level = logging.DEBUG
-        pp.SHOW_EXPECTED_EXCEPTIONS = True
+    # if debug:
+    #     log_level = logging.DEBUG
+    #     pp.SHOW_EXPECTED_EXCEPTIONS = True
 
     log_handler = logging.StreamHandler()
     log_handler.setFormatter(logging.Formatter(log_format))

@@ -52,9 +52,11 @@ class AD(object):
             return self*AD(1/val.x, -val.dx/val.x**2)
         else:
             return self*(1/float(val))
+    truediv__ = __div__ # PYTHON 3
 
     def __rdiv__(self, val):
         return AD(val)/self
+    __rtruediv__ = __rdiv__ # PYTHON 3
 
     def __sub__(self, val):
         if isinstance(val, AD):
@@ -85,13 +87,13 @@ class PartialSum(object):
         """
         partial sum for truncated natural logarithm
         """
-        return sum([float(i%2 and 1 or -1)*x**i/i for i in xrange(1, self.n)])
+        return sum([float(i%2 and 1 or -1)*x**i/i for i in range(1, self.n)])
 
 
-print """Usage: python auto_diff.py [ncpus]
-    [ncpus] - the number of workers to run in parallel,
-    if omitted it will be set to the number of processors in the system
-"""
+print("""Usage: python auto_diff.py [ncpus]
+         [ncpus] - the number of workers to run in parallel,
+         if omitted it will be set to the number of processors in the system
+      """)
 
 # tuple of all parallel python servers to connect with
 #ppservers = ("*",) # auto-discover
@@ -106,7 +108,7 @@ else:
     # Creates jobserver with automatically detected number of workers
     job_server = pp.Server(ppservers=ppservers)
 
-print "Starting pp with", job_server.get_ncpus(), "workers"
+print("Starting pp with %s workers" % job_server.get_ncpus())
 
 proc = PartialSum(20000)
 
@@ -121,7 +123,7 @@ for i in range(32):
 for x, f in results:
     # Retrieves the result of the calculation
     val = f()
-    print "t_log(%lf) = %lf, t_log'(%lf) = %lf" % (x, val.x, x, val.dx)
+    print("t_log(%lf) = %lf, t_log'(%lf) = %lf" % (x, val.x, x, val.dx))
 
 # Print execution statistics
 job_server.print_stats()
